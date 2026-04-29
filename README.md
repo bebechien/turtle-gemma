@@ -2,6 +2,8 @@
 
 This project is a web-based application that uses a Gemma model to translate natural language commands into turtle graphics (Logo). You can ask the agent to draw shapes, patterns, and more, and watch the turtle draw it on the canvas. You can also manually write and run Logo code.
 
+![screenshot](screenshot.png)
+
 ## Features
 
 *   **Natural Language to Logo:** Translate commands like "draw a blue square" into Logo code.
