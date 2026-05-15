@@ -7,6 +7,7 @@ This project is a web-based application that uses a Gemma model to translate nat
 ## Features
 
 *   **Natural Language to Logo:** Translate commands like "draw a blue square" into Logo code.
+*   **Voice Commands:** Record audio directly in the browser to describe what you want the turtle to draw.
 *   **AI Agent:** Uses a Gemma model with tool-calling capabilities to generate graphics commands.
 *   **Interactive Web UI:** Built with Gradio for an easy-to-use interface.
 *   **Live Canvas:** See the turtle draw on the canvas in real-time.
@@ -17,7 +18,7 @@ This project is a web-based application that uses a Gemma model to translate nat
 
 The application follows these steps:
 
-1.  **User Input:** The user enters a natural language command (e.g., "draw a red circle") in the Gradio interface.
+1.  **User Input:** The user enters a natural language command (e.g., "draw a red circle") or records a voice request via the microphone in the Gradio interface.
 2.  **Gemma Agent:** The `GemmaAgent` takes the input and, using a pre-defined set of tools, generates a series of turtle graphics commands.
 3.  **Turtle Engine:** The `HeadlessTurtle` engine executes these commands, drawing the output on a PIL image.
 4.  **UI Update:** The Gradio UI is updated to show the generated Logo code, the final image, and the agent's logs.
@@ -45,7 +46,7 @@ The application follows these steps:
 
 3.  **Install the dependencies:**
     ```bash
-    pip install gradio torch transformers Pillow accelerate
+    pip install gradio torch transformers Pillow accelerate scipy soundfile librosa
     ```
 
 ## Usage
@@ -61,7 +62,7 @@ This will start a local Gradio server. Open the URL provided in your terminal to
 ## Components
 
 *   **`app.py`**: The main application file that runs the Gradio web UI.
-*   **`gemma_agent.py`**: Manages the Gemma model, including loading the model, processing prompts, and generating tool calls.
+*   **`gemma_agent.py`**: Manages the Gemma model, including loading the model, processing text and audio prompts, and generating tool calls.
 *   **`turtle_engine.py`**: A "headless" turtle graphics engine that draws on a PIL image. It keeps track of the turtle's state (position, heading, etc.) and command history.
 *   **`logo_interpreter.py`**: A simple interpreter for standard Logo commands (e.g., `FD`, `RT`, `REPEAT`). It translates these commands into actions for the `HeadlessTurtle`.
 *   **`config.py`**: Contains configuration for the application, such as the default Gemma model ID and the tool definitions for the AI agent.

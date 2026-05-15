@@ -25,7 +25,16 @@ def preprocess_audio(audio_input, target_sr: int = 16000) -> str:
     if isinstance(audio_input, str):
         # It's already a file path — load it
         import soundfile as sf
-        data, sr = sf.read(audio_input, dtype='float32')
+        import time
+        
+        # Retry logic for Windows file locks
+        for i in range(10):
+            try:
+                data, sr = sf.read(audio_input, dtype='float32')
+                break
+            except (PermissionError, RuntimeError) as e:
+                if i == 9: raise e
+                time.sleep(0.2)
     elif isinstance(audio_input, tuple):
         sr, data = audio_input
         data = data.astype(np.float32)
@@ -49,9 +58,12 @@ def preprocess_audio(audio_input, target_sr: int = 16000) -> str:
     # Clip to [-1, 1] and save as WAV
     data = np.clip(data, -1.0, 1.0)
     import soundfile as sf
-    tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-    sf.write(tmp.name, data, target_sr, subtype='FLOAT')
-    return tmp.name
+    
+    # Use mkstemp and close the fd immediately to avoid "file in use" errors on Windows
+    fd, path = tempfile.mkstemp(suffix='.wav')
+    os.close(fd)
+    sf.write(path, data, target_sr, subtype='FLOAT')
+    return path
 
 class GemmaAgent:
     """
@@ -110,10 +122,8 @@ class GemmaAgent:
                             arguments[key] = value_str
         return func_name, arguments
 
-    def generate_text(self, messages, enable_thinking=True, audio_list=None):
-        print(enable_thinking)
-
-        if audio_list:
+    def generate_text(self, messages, enable_thinking=True, enable_audio=False):
+        if enable_audio:
             # Multimodal path: let the processor tokenize and embed audio
             inputs = self.processor.apply_chat_template(
                 messages,
@@ -134,7 +144,6 @@ class GemmaAgent:
                 add_generation_prompt=True,
                 enable_thinking=enable_thinking,
             )
-            print(text)
             inputs = self.processor(text=text, return_tensors='pt').to(self.device)
 
         streamer = TextIteratorStreamer(self.processor, skip_prompt=True, skip_special_tokens=False)
@@ -166,10 +175,10 @@ class GemmaAgent:
                 {"type": "text", "text": prompt if prompt.strip() else "Describe what you want to draw based on the audio."},
             ]
         else:
-            user_content = prompt
+            user_content = [{"type": "text", "text": prompt}]
 
         messages = [
-            {"role": "system", "content": "You are the Logo Graphic Architect, an expert at translating natural language descriptions into precise, executable Turtle Graphics (Logo) code. Convert the user's visual request into a sequence of commands that a standard turtle graphics interpreter can execute. Your goal is to create clean, efficient, and logically sound geometric representations. Say \"DONE\" once you finished."},
+            {"role": "system", "content": [{"type": "text", "text": "You are the Logo Graphic Architect, an expert at translating natural language descriptions into precise, executable Turtle Graphics (Logo) code. Convert the user's visual request into a sequence of commands that a standard turtle graphics interpreter can execute. Your goal is to create clean, efficient, and logically sound geometric representations. Say \"DONE\" once you finished."}]},
             {"role": "user", "content": user_content},
         ]
 
@@ -177,7 +186,7 @@ class GemmaAgent:
             yield f"🤖 Generating tool calls... {cur_turn+1}/{turns}\n"
 
             response_text = ""
-            gen = self.generate_text(messages, enable_thinking=enable_thinking, audio_list=[audio_path] if audio_path else None)
+            gen = self.generate_text(messages, enable_thinking=enable_thinking, enable_audio=True if audio_path else False)
             while not self.stop_generate:
                 try:
                     chunk = next(gen)
@@ -213,7 +222,7 @@ class GemmaAgent:
                         yield f"-> ❌ Error executing action: {e}\n"
                 else:
                     if text:
-                        messages.append({"role": "assistant", "content": text})
+                        messages.append({"role": "assistant", "content": [{"type": "text", "text": text}]})
                     results.append({"name": func_name, "response": "Invalid tool name."})
                     yield "No valid tool call found.\n"
 
@@ -235,5 +244,5 @@ class GemmaAgent:
             })
             print(messages[-1])
 
-            messages.append({"role": "user", "content": "continue"})
+            messages.append({"role": "user", "content": [{"type": "text", "text": "continue"}]})
 

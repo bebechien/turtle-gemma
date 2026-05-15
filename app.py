@@ -132,8 +132,7 @@ def create_ui():
                 mic_input = gr.Audio(
                     label="🎙️ Voice Input (optional — record your drawing request)",
                     sources=["microphone"],
-                    type="numpy",
-                    format="wav",
+                    type="filepath",
                 )
 
                 with gr.Row():
