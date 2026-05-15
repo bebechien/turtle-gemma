@@ -3,13 +3,55 @@
 Manages the LLM, handles chat templates, and parses specific tool-call formats.
 """
 import re
+import os
+import tempfile
 import torch
+import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
 from transformers import AutoProcessor, AutoModelForCausalLM, TextIteratorStreamer
 from threading import Thread
 
 from turtle_engine import HeadlessTurtle
 from config import MAX_AI_TURNS, TOOLS
+
+def preprocess_audio(audio_input, target_sr: int = 16000) -> str:
+    """
+    Accepts either:
+      - A (sample_rate, numpy_array) tuple from gr.Audio
+      - A file path string to a WAV file
+    Resamples to mono 16kHz float32 WAV and saves to a temp file.
+    Returns the path to the processed WAV file.
+    """
+    if isinstance(audio_input, str):
+        # It's already a file path — load it
+        import soundfile as sf
+        data, sr = sf.read(audio_input, dtype='float32')
+    elif isinstance(audio_input, tuple):
+        sr, data = audio_input
+        data = data.astype(np.float32)
+        # Normalize int types to [-1, 1]
+        if data.dtype != np.float32 or data.max() > 1.0 or data.min() < -1.0:
+            max_val = np.iinfo(np.int16).max if data.itemsize == 2 else np.iinfo(np.int32).max
+            data = data / max_val
+    else:
+        raise ValueError(f"Unsupported audio input type: {type(audio_input)}")
+
+    # Downmix to mono
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+
+    # Resample to target_sr if needed
+    if sr != target_sr:
+        from scipy.signal import resample
+        num_samples = int(len(data) * target_sr / sr)
+        data = resample(data, num_samples).astype(np.float32)
+
+    # Clip to [-1, 1] and save as WAV
+    data = np.clip(data, -1.0, 1.0)
+    import soundfile as sf
+    tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    sf.write(tmp.name, data, target_sr, subtype='FLOAT')
+    return tmp.name
 
 class GemmaAgent:
     """
@@ -68,17 +110,32 @@ class GemmaAgent:
                             arguments[key] = value_str
         return func_name, arguments
 
-    def generate_text(self, messages, enable_thinking=True):
+    def generate_text(self, messages, enable_thinking=True, audio_list=None):
         print(enable_thinking)
-        text = self.processor.apply_chat_template(
-            messages,
-            tools=TOOLS,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=enable_thinking,
-        )
-        print(text)
-        inputs = self.processor(text=text, return_tensors='pt').to(self.device)
+
+        if audio_list:
+            # Multimodal path: let the processor tokenize and embed audio
+            inputs = self.processor.apply_chat_template(
+                messages,
+                tools=TOOLS,
+                tokenize=True,
+                return_dict=True,
+                return_tensors='pt',
+                add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+            )
+            inputs = inputs.to(self.device, dtype=self.model.dtype)
+        else:
+            # Text-only path
+            text = self.processor.apply_chat_template(
+                messages,
+                tools=TOOLS,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+            )
+            print(text)
+            inputs = self.processor(text=text, return_tensors='pt').to(self.device)
 
         streamer = TextIteratorStreamer(self.processor, skip_prompt=True, skip_special_tokens=False)
 
@@ -100,18 +157,27 @@ class GemmaAgent:
         thread.join()
         return response_text
 
-    def run_interactive(self, prompt: str, turtle: HeadlessTurtle, turns: int = MAX_AI_TURNS, enable_thinking: bool = True):
+    def run_interactive(self, prompt: str, turtle: HeadlessTurtle, turns: int = MAX_AI_TURNS, enable_thinking: bool = True, audio_path: Optional[str] = None):
         """Runs the LLM-tool-execution loop."""
+        # Build the user message content — may include audio
+        if audio_path and os.path.isfile(audio_path):
+            user_content = [
+                {"type": "audio", "audio": audio_path},
+                {"type": "text", "text": prompt if prompt.strip() else "Describe what you want to draw based on the audio."},
+            ]
+        else:
+            user_content = prompt
+
         messages = [
             {"role": "system", "content": "You are the Logo Graphic Architect, an expert at translating natural language descriptions into precise, executable Turtle Graphics (Logo) code. Convert the user's visual request into a sequence of commands that a standard turtle graphics interpreter can execute. Your goal is to create clean, efficient, and logically sound geometric representations. Say \"DONE\" once you finished."},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": user_content},
         ]
 
         for cur_turn in range(turns):
             yield f"🤖 Generating tool calls... {cur_turn+1}/{turns}\n"
 
             response_text = ""
-            gen = self.generate_text(messages, enable_thinking=enable_thinking)
+            gen = self.generate_text(messages, enable_thinking=enable_thinking, audio_list=[audio_path] if audio_path else None)
             while not self.stop_generate:
                 try:
                     chunk = next(gen)

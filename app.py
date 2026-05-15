@@ -9,7 +9,7 @@ import gradio as gr
 from config import MODEL_ID
 from turtle_engine import HeadlessTurtle
 from logo_interpreter import LogoInterpreter
-from gemma_agent import GemmaAgent
+from gemma_agent import GemmaAgent, preprocess_audio
 
 # --- Global Instances ---
 # Initialize these once to be shared by all users.
@@ -47,7 +47,7 @@ def reload_model(new_model_id_str: str):
     # Yield final status and re-enable buttons
     yield status_message, gr.update(interactive=True), gr.update(interactive=True), gr.update(interactive=True)
 
-def run_ai_command(nl_prompt: str, max_turns: int, enable_thinking: bool):
+def run_ai_command(nl_prompt: str, max_turns: int, enable_thinking: bool, audio_input=None):
     """Callback for the 'Translate & Run' button."""
     if not ai_agent:
         yield "AI model not loaded.", turtle_engine.image, "AI model not loaded."
@@ -57,13 +57,22 @@ def run_ai_command(nl_prompt: str, max_turns: int, enable_thinking: bool):
     turtle_engine.reset()
     log_history = []
 
+    # Preprocess mic audio if provided
+    audio_path = None
+    if audio_input is not None:
+        try:
+            audio_path = preprocess_audio(audio_input)
+            log_history.append(f"🎙️ Audio recorded and preprocessed to 16kHz mono WAV: {audio_path}\n")
+        except Exception as e:
+            log_history.append(f"⚠️ Audio preprocessing failed: {e}. Proceeding with text only.\n")
+
     # Initial state
     log_history.append(f"AI agent is starting... (Max turns set to {max_turns})\n")
     yield turtle_engine.get_history_text(), turtle_engine.image, "".join(log_history)
 
     try:
         # Stream logs from the agent's run_interactive generator
-        for log_message in ai_agent.run_interactive(nl_prompt, turtle_engine, max_turns, enable_thinking):
+        for log_message in ai_agent.run_interactive(nl_prompt, turtle_engine, max_turns, enable_thinking, audio_path=audio_path):
             log_history.append(log_message)
 
             # Yield the new state after each log update
@@ -115,9 +124,16 @@ def create_ui():
                     model_status_output = gr.Markdown(initial_model_status)
 
                 nl_input = gr.Textbox(
-                    label="Ask Agent", 
+                    label="Ask Agent (text)", 
                     value="draw a blue square", 
                     lines=2
+                )
+
+                mic_input = gr.Audio(
+                    label="🎙️ Voice Input (optional — record your drawing request)",
+                    sources=["microphone"],
+                    type="numpy",
+                    format="wav",
                 )
 
                 with gr.Row():
@@ -180,7 +196,7 @@ def create_ui():
 
         ai_run_event = ai_click_event.then(
             fn=run_ai_command,
-            inputs=[nl_input, max_turns_slider, thinking_checkbox],
+            inputs=[nl_input, max_turns_slider, thinking_checkbox, mic_input],
             outputs=[logo_input, output_canvas, log_output]
         ).then(
             fn=lambda: (
