@@ -4,7 +4,7 @@ Stores configuration variables for the application.
 """
 
 MODEL_ID = "google/gemma-4-E2B-it"
-MAX_AI_TURNS = 4 # Limits the AI from getting stuck in infinite tool loops
+MAX_AI_TURNS = 1 # Limits the AI from getting stuck in infinite tool loops
 
 TOOLS = [
   {
