@@ -6,7 +6,7 @@ Imports all components, wires up the UI, and launches the app.
 import gradio as gr
 
 # Local module imports
-from config import MODEL_ID
+from config import MODEL_ID, MAX_AI_TURNS
 from turtle_engine import HeadlessTurtle
 from logo_interpreter import LogoInterpreter
 from gemma_agent import GemmaAgent, preprocess_audio
@@ -143,7 +143,7 @@ def create_ui():
                     label="Max AI Turns (Tool Calls)",
                     minimum=1,
                     maximum=32,
-                    value=4,
+                    value=MAX_AI_TURNS,
                     step=1,
                     info="Limits how many turns the AI can use."
                 )
