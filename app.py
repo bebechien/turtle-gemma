@@ -26,19 +26,24 @@ logo_interpreter = LogoInterpreter(turtle_engine)
 
 # --- Gradio Callbacks ---
 
-def reload_model(new_model_id_str: str):
+def reload_model(new_model_id_str: str, quant: bool):
     """Callback for the 'Load/Reload Model' button."""
     global ai_agent # We must modify the global agent instance
+    
+    if ai_agent:
+        ai_agent.unload_model()
+        del ai_agent
+        ai_agent = None
 
-    status_message = f"🔄 Attempting to load model: `{new_model_id_str}`..."
+    status_message = f"🔄 Attempting to load model: `{new_model_id_str}`, 4-bit: `{quant}`..."
     print(status_message)
     # Yield status and disable buttons
     yield status_message, gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False)
 
     try:
         # This is the slow operation:
-        ai_agent = GemmaAgent(new_model_id_str)
-        status_message = f"✅ Successfully loaded model: `{new_model_id_str}`"
+        ai_agent = GemmaAgent(new_model_id_str, quant)
+        status_message = f"✅ Successfully loaded model: `{new_model_id_str}`, 4-bit: `{quant}`"
         print(status_message)
     except Exception as e:
         print(f"CRITICAL: Failed to reload model. Error: {e}")
@@ -120,6 +125,11 @@ def create_ui():
                         choices=[("E2B", "google/gemma-4-E2B-it"), ("E4B", "google/gemma-4-E4B-it"), ("26B A4B", "google/gemma-4-26B-A4B-it"), ("31B", "google/gemma-4-31B-it") ],
                         value=MODEL_ID,
                     )
+                    quant_checkbox = gr.Checkbox(
+                        label="Enable 4-bit Quantization",
+                        value=False,
+                        info="Use 4-bit quantization"
+                    )
                     reload_btn = gr.Button("🔄 Load/Reload Model")
                     model_status_output = gr.Markdown(initial_model_status)
 
@@ -179,7 +189,7 @@ def create_ui():
 
         reload_btn.click(
             fn=reload_model,
-            inputs=[model_id_input],
+            inputs=[model_id_input, quant_checkbox],
             outputs=[model_status_output, ai_btn, manual_btn, reload_btn]
         )
 

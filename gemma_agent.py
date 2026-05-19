@@ -2,13 +2,14 @@
 """
 Manages the LLM, handles chat templates, and parses specific tool-call formats.
 """
+import gc
 import re
 import os
 import tempfile
 import torch
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
-from transformers import AutoProcessor, AutoModelForCausalLM, TextIteratorStreamer
+from transformers import AutoProcessor, AutoModelForCausalLM, TextIteratorStreamer, BitsAndBytesConfig
 from threading import Thread
 
 from turtle_engine import HeadlessTurtle
@@ -69,12 +70,52 @@ class GemmaAgent:
     """
     Wraps the Gemma model for tool-calling and chat interaction.
     """
-    def __init__(self, model_id: str):
+    model = None
+    processor = None
+
+    def __init__(self, model_id: str, quant: bool = False):
         print(f"Loading model {model_id}...")
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", device_map="auto")
+
+        # Check if GPU benefits from bfloat16
+        if torch.cuda.get_device_capability()[0] >= 8:
+            torch_dtype = torch.bfloat16
+        else:
+            torch_dtype = torch.float32
+        
+        # Define model init arguments
+        model_kwargs = dict(
+            dtype=torch_dtype,
+            device_map="auto", # Let torch decide how to load the model
+        )
+
+        if quant:
+            # BitsAndBytesConfig: Enables 4-bit quantization to reduce model size/memory usage
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type='nf4',
+                bnb_4bit_compute_dtype=model_kwargs['dtype'],
+                bnb_4bit_quant_storage=model_kwargs['dtype'],
+            )
+
+        #self.model = AutoModelForCausalLM.from_pretrained(model_id, dtype="auto", device_map="auto")
+        self.model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
         self.processor = AutoProcessor.from_pretrained(model_id, use_fast=False)
         self.device = self.model.device
         self.stop_generate = False
+    
+    def unload_model(self):
+        print("Unload model...")
+        if self.model:
+            del self.model
+            self.model = None
+        
+        if self.processor:
+            del self.processor
+            self.processor = None
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def split_tool_calls(self, multi_tool_string):
         """Splits a string containing multiple tool calls."""

@@ -46,7 +46,7 @@ The application follows these steps:
 
 3.  **Install the dependencies:**
     ```bash
-    pip install gradio torch transformers Pillow accelerate scipy soundfile librosa
+    pip install gradio torch transformers bitsandbytes Pillow accelerate scipy soundfile librosa
     ```
 
 ## Usage
